@@ -502,8 +502,10 @@ jobs:
               echo "添加 ReSukiSU..."
               curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash $BRANCH
               if [[ "${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}" == "android15-6.6-111" ]]; then
-                git -C KernelSU fetch --depth=1 origin 930f61a654f35b98577e5da781fb30f9a1bc678b
-                git -C KernelSU checkout --detach 930f61a654f35b98577e5da781fb30f9a1bc678b
+                # Final upstream ReSukiSU revision before KPM was removed.
+                # Keep the kernel, manager ABI, and ksud KPM support aligned.
+                git -C KernelSU fetch --depth=1 origin a13d71f699093f0c1da7ba442881eccaa8e4321a
+                git -C KernelSU checkout --detach a13d71f699093f0c1da7ba442881eccaa8e4321a
               fi
               ;;
             *)
@@ -523,12 +525,12 @@ jobs:
             echo "KSU_LATEST_COMMIT_DATE=未知" >> $GITHUB_ENV
           fi
 
-      - name: Apply ReSukiSU KPM compatibility bridge
+      - name: Harden ReSukiSU KPM early detection
         if: startsWith(inputs.use_kpm, 'patched') && inputs.ksu_variant == 'ReSukiSU'
         working-directory: ${{ env.KERNEL_ROOT }}/KernelSU
         run: |
           set -euo pipefail
-          PATCH_FILE="$GITHUB_WORKSPACE/.github/patches/resukisu-kpm-compat.patch"
+          PATCH_FILE="$GITHUB_WORKSPACE/.github/patches/resukisu-kpm-detect.patch"
           test -s "$PATCH_FILE"
           git apply --check "$PATCH_FILE"
           git apply "$PATCH_FILE"
@@ -1289,6 +1291,13 @@ jobs:
           CONFIG_TMPFS_POSIX_ACL=y
           EOF
 
+          if [[ "${{ inputs.ksu_variant }}" == "ReSukiSU" && "${{ inputs.use_kpm }}" == patched* ]]; then
+            # Preserve the very early KernelPatch symbol line until the
+            # ReSukiSU detector runs after the Android driver log flood.
+            sed -i '/^CONFIG_LOG_BUF_SHIFT=/d' "$DEFCONFIG"
+            echo "CONFIG_LOG_BUF_SHIFT=22" >> "$DEFCONFIG"
+          fi
+
           if [ "${{ inputs.ksu_variant }}" == "SukiSU" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40726)" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40548)" ] || [ "${{ inputs.ksu_variant }}" == "ReSukiSU" ] || [ "${{ inputs.ksu_variant }}" == "Next" ]; then
             if [[ "${{ inputs.use_kpm }}" == enabled* ]] || [[ "${{ inputs.ksu_variant }}" == "ReSukiSU" && "${{ inputs.use_kpm }}" == patched* ]]; then
               if ! grep -RqsE '^[[:space:]]*config[[:space:]]+KPM([[:space:]]|$)' common KernelSU 2>/dev/null; then
@@ -1356,7 +1365,7 @@ jobs:
             grep -qx "$required" "$DEFCONFIG"
           done
           test "$(git -C "$KERNEL_ROOT/common" rev-parse HEAD)" = "eb31ef0a789d8102e24d92b2bf65a495a3646f78"
-          test "$(git -C "$KERNEL_ROOT/KernelSU" rev-parse HEAD)" = "930f61a654f35b98577e5da781fb30f9a1bc678b"
+          test "$(git -C "$KERNEL_ROOT/KernelSU" rev-parse HEAD)" = "a13d71f699093f0c1da7ba442881eccaa8e4321a"
           ! grep -q 'static void ignore_init(void)' "$KERNEL_ROOT/common/fs/unicode/mkutf8data.c"
 
       - name: 配置内核名称
@@ -1542,7 +1551,7 @@ jobs:
             echo "action_build=$(git -C "$ACTION_BUILD" rev-parse HEAD)"
             echo "kernel_patches=$(git -C "$KERNEL_PATCHES" rev-parse HEAD)"
             echo "kpm_mode=post-build SukiSU KernelPatch patch_linux"
-            echo "kpm_bridge=resukisu historical compatibility stubs + delayed KernelPatch detection"
+            echo "kpm_bridge=last official ReSukiSU KPM revision + hardened early detection"
             echo "unicode_zero_width_fix=enabled"
             echo "zram=CONFIG_ZRAM=y,LZ4K,LZ4KD,LZ4K_OPLUS"
             strings "$SRC_DIR/Image" | grep -m1 '^Linux version ' || true

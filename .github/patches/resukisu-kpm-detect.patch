@@ -1,0 +1,54 @@
+diff --git a/kernel/compat/apatch_conflict.c b/kernel/compat/apatch_conflict.c
+--- a/kernel/compat/apatch_conflict.c
++++ b/kernel/compat/apatch_conflict.c
+@@ -1,4 +1,7 @@
+ #include <linux/kthread.h>
++#include <linux/cred.h>
++#include <linux/init_task.h>
++#include <linux/delay.h>
+ #include <linux/syslog.h>
+ #include <linux/vmalloc.h>
+ 
+@@ -22,6 +25,7 @@ static struct kp_symbol_region symbol_region = { 0, 0 };
+ static bool try_dump_kp_symbol_addr()
+ {
+     bool ret = false;
++    const struct cred *old_cred;
+     char *buf;
+     int len;
+     char *match;
+@@ -36,7 +40,9 @@ static bool try_dump_kp_symbol_addr()
+     if (!buf)
+         return false;
+ 
++    old_cred = override_creds(&init_cred);
+     len = do_syslog(SYSLOG_ACTION_READ_ALL, buf, log_size, 0);
++    revert_creds(old_cred);
+ 
+     pr_info("pulled log size: %d", log_size);
+ 
+@@ -116,8 +122,16 @@ static unsigned long symbol_lookup_name(const char *name)
+ 
+ static int detect_conflict_thread(void *data)
+ {
++    int retry;
++
+     pr_info("Start checking KernelPatch...");
+-    if (!try_dump_kp_symbol_addr()) {
++    for (retry = 0; retry < 20; retry++) {
++        if (try_dump_kp_symbol_addr())
++            break;
++        msleep(100);
++    }
++
++    if (retry == 20) {
+         pr_info("KernelPatch was not found");
+         kernel_patch_type = KERNEL_PATCH_NOT_FOUND;
+         return 0;
+@@ -147,4 +161,4 @@ static int detect_conflict_thread(void *data)
+ void ksu_start_apatch_conflict_check()
+ {
+     kthread_run(detect_conflict_thread, NULL, "detect_apatch_conflict");
+-}
+\ No newline at end of file
++}
