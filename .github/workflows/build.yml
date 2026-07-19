@@ -523,6 +523,18 @@ jobs:
             echo "KSU_LATEST_COMMIT_DATE=未知" >> $GITHUB_ENV
           fi
 
+      - name: Apply ReSukiSU KPM compatibility bridge
+        if: startsWith(inputs.use_kpm, 'patched') && inputs.ksu_variant == 'ReSukiSU'
+        working-directory: ${{ env.KERNEL_ROOT }}/KernelSU
+        run: |
+          set -euo pipefail
+          PATCH_FILE="$GITHUB_WORKSPACE/.github/patches/resukisu-kpm-compat.patch"
+          test -s "$PATCH_FILE"
+          git apply --check "$PATCH_FILE"
+          git apply "$PATCH_FILE"
+          grep -q '^config KPM$' kernel/Kconfig
+          grep -q 'sukisu_kpm_load_module_path' kernel/kpm/kpm.c
+
       - name: 配置 SukiSU 管理器信息
         if: inputs.ksu_variant == 'SukiSU' || inputs.ksu_variant == 'SukiSU(40726)' || inputs.ksu_variant == 'SukiSU(40548)'
         working-directory: ${{ env.KERNEL_ROOT }}/KernelSU
@@ -1278,7 +1290,7 @@ jobs:
           EOF
 
           if [ "${{ inputs.ksu_variant }}" == "SukiSU" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40726)" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40548)" ] || [ "${{ inputs.ksu_variant }}" == "ReSukiSU" ] || [ "${{ inputs.ksu_variant }}" == "Next" ]; then
-            if [[ "${{ inputs.use_kpm }}" == enabled* ]]; then
+            if [[ "${{ inputs.use_kpm }}" == enabled* ]] || [[ "${{ inputs.ksu_variant }}" == "ReSukiSU" && "${{ inputs.use_kpm }}" == patched* ]]; then
               if ! grep -RqsE '^[[:space:]]*config[[:space:]]+KPM([[:space:]]|$)' common KernelSU 2>/dev/null; then
                 echo "错误: 已请求启用 KPM，但当前 KernelSU 代码未声明 CONFIG_KPM" >&2
                 exit 1
@@ -1488,6 +1500,23 @@ jobs:
           esac
 
           test -s "$TARGET_PATH/Image"
+          if [ "${{ inputs.ksu_variant }}" = "ReSukiSU" ]; then
+            VMLINUX=$(find "$KERNEL_ROOT/bazel-bin" "$KERNEL_ROOT/out" -type f -name vmlinux -print -quit 2>/dev/null)
+            test -n "$VMLINUX"
+            for symbol in \
+              sukisu_kpm_load_module_path \
+              sukisu_kpm_unload_module \
+              sukisu_kpm_num \
+              sukisu_kpm_list \
+              sukisu_kpm_info \
+              sukisu_kpm_control \
+              sukisu_kpm_version; do
+              readelf -Ws "$VMLINUX" | grep -E "[[:space:]]${symbol}$" >/dev/null || {
+                echo "Missing KPM bridge symbol in vmlinux: $symbol" >&2
+                exit 1
+              }
+            done
+          fi
           cp "$SUKISU_PATCHES/kpm/patch_linux" "$TARGET_PATH/patch_linux"
           chmod 0755 "$TARGET_PATH/patch_linux"
           cd "$TARGET_PATH"
@@ -1513,6 +1542,7 @@ jobs:
             echo "action_build=$(git -C "$ACTION_BUILD" rev-parse HEAD)"
             echo "kernel_patches=$(git -C "$KERNEL_PATCHES" rev-parse HEAD)"
             echo "kpm_mode=post-build SukiSU KernelPatch patch_linux"
+            echo "kpm_bridge=resukisu historical compatibility stubs + delayed KernelPatch detection"
             echo "unicode_zero_width_fix=enabled"
             echo "zram=CONFIG_ZRAM=y,LZ4K,LZ4KD,LZ4K_OPLUS"
             strings "$SRC_DIR/Image" | grep -m1 '^Linux version ' || true
