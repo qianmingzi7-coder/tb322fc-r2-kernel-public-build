@@ -41,9 +41,10 @@ diff --git a/kernel/compat/apatch_conflict.c b/kernel/compat/apatch_conflict.c
 index e6e2f283..a594f8ca 100644
 --- a/kernel/compat/apatch_conflict.c
 +++ b/kernel/compat/apatch_conflict.c
-@@ -1,4 +1,6 @@
+@@ -1,4 +1,7 @@
  #include <linux/kthread.h>
 +#include <linux/cred.h>
++#include <linux/init_task.h>
 +#include <linux/delay.h>
  #include <linux/syslog.h>
  #include <linux/vmalloc.h>
