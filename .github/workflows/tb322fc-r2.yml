@@ -6,6 +6,13 @@ permissions:
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - codex/tb322fc-r2-kpm-fix
+    paths:
+      - .github/workflows/tb322fc-r2.yml
+      - .github/workflows/build.yml
+      - .github/patches/**
 
 jobs:
   build-tb322fc-r2:
